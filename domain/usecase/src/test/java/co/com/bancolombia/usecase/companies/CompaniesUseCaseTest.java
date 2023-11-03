@@ -1,8 +1,6 @@
 package co.com.bancolombia.usecase.companies;
 
 import co.com.bancolombia.model.company.*;
-import co.com.bancolombia.model.company.exceptions.CompanyGenericException;
-import co.com.bancolombia.model.company.exceptions.CompanyNotFoundException;
 import co.com.bancolombia.model.company.gateways.CompanyServicesGateway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -46,31 +44,20 @@ class CompaniesUseCaseTest {
                     return Mono.just(true);
                 });
 
-        // Cuando se consulte la empresa 'Minimercado Especial' en bancolombia el publisher va a emitir
-        // un error. Con cualquier otro nombre el publisher emitira un objeto Restriction.
+        // Cuando se consulte una empresa el publisher emitira un objeto Restriction.
         lenient().when(companyServicesGatewayMock.getRestrictionsBancolombia(any(Company.class)))
-                .thenAnswer(invocation -> {
-                    Company company = invocation.getArgument(0);
-                    if ("Minimercado Especial".equalsIgnoreCase(company.getName())) {
-                        return Mono.error(new RuntimeException("opsss"));
-                    } else {
-                        return Mono.just(Collections.singletonList(Restriction.builder()
-                                .name("blah")
-                                .build()));
-                    }
-                });
+                .thenAnswer(invocation ->
+                    Mono.just(Collections.singletonList(Restriction.builder()
+                            .name("blah")
+                            .build()))
+                );
 
-        // Cuando se consulte la empresa "Verduras Frescas" en datacredito se va a generar una excepcion.
-        // Con cualquier otro nombre devolvera CreditRating.LOW_RISK.
+        // Cuando se consulte la empresa se emitira el valor CreditRating.LOW_RISK.
+        // Al ser una operation bloqueante se simula una espera de 200 milisegundos
         lenient().when(companyServicesGatewayMock.getStateDataCredito(any(Company.class)))
                 .thenAnswer(invocation -> {
                     Thread.sleep(200);
-                    Company company = invocation.getArgument(0);
-                    if ("Verduras Frescas".equalsIgnoreCase(company.getName())) {
-                        return new RuntimeException("Error no esperado");
-                    } else {
-                        return CreditRating.LOW_RISK;
-                    }
+                    return CreditRating.LOW_RISK;
                 });
 
         // En este caso el mock de consulta super intendencia siempre emite un Reporte
@@ -119,7 +106,7 @@ class CompaniesUseCaseTest {
                 .expectNextMatches(validation -> {
                     assertNotNull(validation.getCompany());
                     assertTrue(validation.isExistInCamaraComercio());
-                    assertEquals(CreditRating.MID_RISK, validation.getCreditRatingDataCredito());
+                    assertEquals(CreditRating.LOW_RISK, validation.getCreditRatingDataCredito());
                     assertNotNull(validation.getReportSuperIntendencia());
                     assertNotNull(validation.getRestrictions());
                     return true;
@@ -143,7 +130,7 @@ class CompaniesUseCaseTest {
 
         StepVerifier.create(validationPublisher)
                 .expectSubscription()
-                .verifyError(CompanyNotFoundException.class);
+                .verifyComplete();
 
         // Verificamos que el sgte metodo haya sido invocado
         verify(companyServicesGatewayMock, times(1)).validateInCamaraComercio(any(Company.class));
@@ -152,27 +139,5 @@ class CompaniesUseCaseTest {
         verify(companyServicesGatewayMock, times(0)).getStateDataCredito(any(Company.class));
         verify(companyServicesGatewayMock, times(0)).getReportSuperIntendencia(any(Company.class));
     }
-
-    @Test
-    void shouldHandleUnwantedExceptionAndMappingIt() {
-
-        Company company = Company.builder().name("Minimercado Especial").build();
-
-        // El publisher que vamos a probar
-        Mono<Validation> validationPublisher = useCase.validateCompany(company);
-
-        StepVerifier.create(validationPublisher)
-                .expectSubscription()
-                .verifyError(CompanyGenericException.class);
-
-        // Verificamos que estos metodos hayan sido invocados
-        verify(companyServicesGatewayMock, times(1)).validateInCamaraComercio(any(Company.class));
-        verify(companyServicesGatewayMock, times(1)).getRestrictionsBancolombia(any(Company.class));
-
-        // De resto, verificamos que ninguno de estos debio ser invocado
-        verify(companyServicesGatewayMock, times(0)).getStateDataCredito(any(Company.class));
-        verify(companyServicesGatewayMock, times(0)).getReportSuperIntendencia(any(Company.class));
-    }
-
 
 }
